@@ -4,15 +4,14 @@ import sys
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ============================
-# Конфигурация
+# Конфигурация: вставьте свои данные
 # ============================
-# Замените значения ниже на свои данные, полученные с https://my.telegram.org
 api_id = 12345678                     # Ваш API ID (целое число)
 api_hash = 'your_api_hash_here'       # Ваш API hash (строка)
-session_name = 'my_session'           # Имя файла сессии (будет создан и сохранён локально)
+session_name = 'my_session'           # Имя файла сессии
 
 # Хештег для поиска (измените при необходимости)
 SEARCH_HASHTAG = "#A910"
@@ -23,7 +22,6 @@ SEARCH_HASHTAG = "#A910"
 async def authorize(client: TelegramClient):
     await client.connect()
     if not await client.is_user_authorized():
-        # Если сессия ещё не авторизована, запросим номер телефона и код подтверждения
         phone = input("Введите номер телефона (с международным кодом, например, +1234567890): ").strip()
         try:
             await client.send_code_request(phone)
@@ -40,20 +38,20 @@ async def authorize(client: TelegramClient):
 
 # ============================
 # Функция получения сообщений из всех диалогов
+# Добавлен параметр min_date для ограничения по времени
 # ============================
-async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dialog: int = 1000):
+async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dialog: int = 1000, min_date=None):
     results = []
     dialogs = await client.get_dialogs()
     print(f"Найдено {len(dialogs)} чатов.")
     for dialog in dialogs:
         print(f"Обработка чата: {dialog.name} (ID: {dialog.id})")
         try:
-            messages = await client.get_messages(dialog.entity, limit=limit_per_dialog)
+            messages = await client.get_messages(dialog.entity, limit=limit_per_dialog, min_date=min_date)
         except Exception as e:
             print(f"Ошибка получения сообщений для {dialog.name}: {e}")
             continue
         for msg in messages:
-            # Если в сообщении есть текст и он содержит искомый хештег
             if msg.text and hashtag in msg.text:
                 results.append({
                     "chat_name": dialog.name,
@@ -92,9 +90,18 @@ async def main():
     client = TelegramClient(session_name, api_id, api_hash)
     await authorize(client)
     
-    # После авторизации скрипт автоматически анализирует все чаты
     print(f"Поиск сообщений с хештегом {SEARCH_HASHTAG}...")
-    data = await fetch_all_messages(client, SEARCH_HASHTAG)
+    
+    # Спрашиваем, анализировать ли только последние 7 дней
+    choice = input("Анализировать только последние 7 дней? (Y/n): ").strip().lower()
+    if choice in ["", "y", "yes"]:
+        min_date = datetime.now() - timedelta(days=7)
+        print(f"Анализ сообщений с {min_date.strftime('%Y-%m-%d %H:%M:%S')} до настоящего момента.")
+    else:
+        min_date = None
+        print("Анализ сообщений за все время.")
+    
+    data = await fetch_all_messages(client, SEARCH_HASHTAG, limit_per_dialog=1000, min_date=min_date)
     
     if not data:
         print(f"Сообщения с хештегом {SEARCH_HASHTAG} не найдены.")
