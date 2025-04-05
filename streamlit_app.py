@@ -6,22 +6,29 @@ from datetime import datetime, timedelta
 import os
 from telethon import TelegramClient
 
-# Применяем nest_asyncio для работы с вложенными event loops
+# Применяем nest_asyncio для разрешения вложенных event loops
 nest_asyncio.apply()
+
+# Если текущего event loop нет, создаём его и устанавливаем
+try:
+    loop = asyncio.get_running_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
 # ---------------------------
 # Конфигурация для Telegram API
 # ---------------------------
-api_id = '1403467'  # Замените на ваш API ID
-api_hash = '15525849e4b493d2143b175f96825f87'  # Замените на ваш API hash
+api_id = '1403467'  # Ваш API ID
+api_hash = '15525849e4b493d2143b175f96825f87'  # Ваш API hash
 session_name = 'my_session'  # Имя файла сессии
 
 # Регулярное выражение для поиска хештегов
 hashtag_pattern = re.compile(r'#\w+')
 
-# Функция для создания клиента Telethon
+# Функция для создания клиента Telethon с явным указанием event loop
 def create_client():
-    return TelegramClient(session_name, api_id, api_hash)
+    return TelegramClient(session_name, api_id, api_hash, loop=asyncio.get_event_loop())
 
 # ---------------------------
 # Асинхронные функции для работы с Telegram
@@ -77,7 +84,7 @@ def main():
         st.error("Неверный пароль")
         return
 
-    # Создаем клиента и запускаем его
+    # Создаем клиента и запускаем его с использованием явного event loop
     client = create_client()
     try:
         asyncio.run(client.start(phone=phone))
@@ -87,7 +94,7 @@ def main():
 
     st.success("Клиент успешно запущен!")
 
-    # Получение списка диалогов
+    # Блок для получения списка диалогов
     if st.button("Получить список диалогов"):
         dialogs = asyncio.run(get_dialogs(client))
         st.write("Доступные диалоги:")
