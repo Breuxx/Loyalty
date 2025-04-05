@@ -1,9 +1,13 @@
 import streamlit as st
+import nest_asyncio
 import re
 import asyncio
 from datetime import datetime, timedelta
 import os
 from telethon import TelegramClient
+
+# Применяем nest_asyncio для работы с вложенными event loops
+nest_asyncio.apply()
 
 # ---------------------------
 # Конфигурация для Telegram API
@@ -60,18 +64,15 @@ def get_report(messages):
 # ---------------------------
 def main():
     st.title("Telegram Tracker")
-    
+
     st.sidebar.header("Настройки авторизации")
-    # Ввод номера телефона (или токена бота)
     phone = st.sidebar.text_input("Введите номер телефона (или токен бота):")
-    # Ввод пароля для доступа
     password = st.sidebar.text_input("Введите пароль:", type="password")
     
     if not phone or not password:
-        st.info("Введите все данные в боковой панели, чтобы продолжить")
+        st.info("Заполните поля в боковой панели")
         return
 
-    # Проверяем пароль (в данном примере пароль – moloko123)
     if password != "moloko123":
         st.error("Неверный пароль")
         return
@@ -85,15 +86,14 @@ def main():
         return
 
     st.success("Клиент успешно запущен!")
-    
-    # Блок для получения списка диалогов
+
+    # Получение списка диалогов
     if st.button("Получить список диалогов"):
         dialogs = asyncio.run(get_dialogs(client))
         st.write("Доступные диалоги:")
         for dialog in dialogs:
             st.write(f"{dialog['name']} (ID: {dialog['id']})")
     
-    # Ввод данных для формирования отчёта
     entity = st.text_input("Введите ID или username диалога для отчёта:")
     search_command = st.text_input("Введите команду поиска (www или w#<хештег>):")
     
@@ -112,7 +112,7 @@ def main():
             else:
                 st.error("Неверная команда поиска")
                 return
-            
+
             if hash_messages:
                 report_data = get_report(hash_messages)
                 st.subheader("Отчёт:")
@@ -125,7 +125,6 @@ def main():
             else:
                 st.info("Сообщения не найдены.")
     
-    # Кнопка для отключения клиента
     if st.button("Отключить клиента"):
         asyncio.run(client.disconnect())
         st.info("Клиент отключен.")
