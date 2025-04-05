@@ -3,34 +3,37 @@ import nest_asyncio
 import re
 import asyncio
 from datetime import datetime, timedelta
+import os
 from telethon import TelegramClient
 
-# Применяем nest_asyncio для разрешения вложенных event loops
+# Применяем nest_asyncio для поддержки вложенных event loops
 nest_asyncio.apply()
 
-# Вспомогательная функция для выполнения асинхронного кода
-def run_async(coro):
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(coro)
+# Создаём или получаем event loop вручную
+try:
+    loop = asyncio.get_running_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
 # ---------------------------
 # Конфигурация для Telegram API
 # ---------------------------
-api_id = '1403467'  # Замените на ваш API ID
-api_hash = '15525849e4b493d2143b175f96825f87'  # Замените на ваш API hash
+api_id = '1403467'  # Ваш API ID
+api_hash = '15525849e4b493d2143b175f96825f87'  # Ваш API hash
 session_name = 'my_session'  # Имя файла сессии
 
 # Регулярное выражение для поиска хештегов
 hashtag_pattern = re.compile(r'#\w+')
 
-# Функция для создания клиента Telethon с явным указанием event loop
+# Функция для создания клиента Telethon с указанием текущего event loop
 def create_client():
     try:
-        loop = asyncio.get_running_loop()
+        current_loop = asyncio.get_running_loop()
     except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return TelegramClient(session_name, api_id, api_hash, loop=loop)
+        current_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(current_loop)
+    return TelegramClient(session_name, api_id, api_hash, loop=current_loop)
 
 # ---------------------------
 # Асинхронные функции для работы с Telegram
@@ -76,24 +79,22 @@ def main():
 
     st.sidebar.header("Настройки авторизации")
     phone = st.sidebar.text_input("Введите номер телефона (или токен бота):")
-    
     if not phone:
-        st.info("Введите номер телефона, чтобы продолжить")
+        st.info("Введите номер телефона для продолжения.")
         return
 
-    # Создаём клиента и запускаем его
+    # Создаем клиента и запускаем его
     client = create_client()
     try:
-        run_async(client.start(phone=phone))
+        loop.run_until_complete(client.start(phone=phone))
     except Exception as e:
         st.error(f"Ошибка при запуске клиента: {e}")
         return
 
     st.success("Клиент успешно запущен!")
 
-    # Блок для получения списка диалогов
     if st.button("Получить список диалогов"):
-        dialogs = run_async(get_dialogs(client))
+        dialogs = loop.run_until_complete(get_dialogs(client))
         st.write("Доступные диалоги:")
         for dialog in dialogs:
             st.write(f"{dialog['name']} (ID: {dialog['id']})")
@@ -103,9 +104,9 @@ def main():
     
     if st.button("Сформировать отчёт"):
         if not entity or not search_command:
-            st.error("Укажите и диалог, и команду поиска")
+            st.error("Укажите диалог и команду поиска.")
         else:
-            messages = run_async(fetch_messages(client, entity))
+            messages = loop.run_until_complete(fetch_messages(client, entity))
             if search_command.startswith("www"):
                 hash_messages = extract_hashtag_messages(messages)
             elif search_command.startswith("w#"):
@@ -114,9 +115,9 @@ def main():
                     tag = "#" + tag
                 hash_messages = extract_hashtag_messages(messages, target_hashtag=tag)
             else:
-                st.error("Неверная команда поиска")
+                st.error("Неверная команда поиска.")
                 return
-
+            
             if hash_messages:
                 report_data = get_report(hash_messages)
                 st.subheader("Отчёт:")
@@ -128,7 +129,10 @@ def main():
                     st.write(f"{date.strftime('%Y-%m-%d %H:%M:%S')}: {text}")
             else:
                 st.info("Сообщения не найдены.")
-
+    
     if st.button("Отключить клиента"):
-        run_async(client.disconnect())
-        st.info("К
+        loop.run_until_complete(client.disconnect())
+        st.info("Клиент отключен.")
+
+if __name__ == '__main__':
+    main()
