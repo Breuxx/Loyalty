@@ -37,8 +37,7 @@ async def authorize(client: TelegramClient):
     print("Авторизация успешна!")
 
 # ============================
-# Функция получения сообщений из всех диалогов
-# Добавлен параметр min_date для ограничения по времени
+# Функция получения сообщений из всех диалогов с фильтрацией по дате
 # ============================
 async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dialog: int = 1000, min_date=None):
     results = []
@@ -47,10 +46,13 @@ async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dia
     for dialog in dialogs:
         print(f"Обработка чата: {dialog.name} (ID: {dialog.id})")
         try:
-            messages = await client.get_messages(dialog.entity, limit=limit_per_dialog, min_date=min_date)
+            messages = await client.get_messages(dialog.entity, limit=limit_per_dialog)
         except Exception as e:
             print(f"Ошибка получения сообщений для {dialog.name}: {e}")
             continue
+        # Если задана дата, фильтруем сообщения вручную
+        if min_date is not None:
+            messages = [msg for msg in messages if msg.date >= min_date]
         for msg in messages:
             if msg.text and hashtag in msg.text:
                 results.append({
@@ -90,8 +92,6 @@ async def main():
     client = TelegramClient(session_name, api_id, api_hash)
     await authorize(client)
     
-    print(f"Поиск сообщений с хештегом {SEARCH_HASHTAG}...")
-    
     # Спрашиваем, анализировать ли только последние 7 дней
     choice = input("Анализировать только последние 7 дней? (Y/n): ").strip().lower()
     if choice in ["", "y", "yes"]:
@@ -101,6 +101,7 @@ async def main():
         min_date = None
         print("Анализ сообщений за все время.")
     
+    print(f"Поиск сообщений с хештегом {SEARCH_HASHTAG}...")
     data = await fetch_all_messages(client, SEARCH_HASHTAG, limit_per_dialog=1000, min_date=min_date)
     
     if not data:
