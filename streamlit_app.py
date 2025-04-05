@@ -3,11 +3,15 @@ import nest_asyncio
 import re
 import asyncio
 from datetime import datetime, timedelta
-import os
 from telethon import TelegramClient
 
 # Применяем nest_asyncio для разрешения вложенных event loops
 nest_asyncio.apply()
+
+# Вспомогательная функция для выполнения асинхронного кода
+def run_async(coro):
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(coro)
 
 # ---------------------------
 # Конфигурация для Telegram API
@@ -53,7 +57,7 @@ def extract_hashtag_messages(messages, target_hashtag=None):
                     filtered.append((msg.date, msg.text, hashtags))
     return filtered
 
-# Функция для подсчета отчёта
+# Функция для подсчёта отчёта
 def get_report(messages):
     now = datetime.now(messages[0][0].tzinfo) if messages else datetime.now()
     one_day = now - timedelta(days=1)
@@ -72,20 +76,15 @@ def main():
 
     st.sidebar.header("Настройки авторизации")
     phone = st.sidebar.text_input("Введите номер телефона (или токен бота):")
-    password = st.sidebar.text_input("Введите пароль:", type="password")
     
-    if not phone or not password:
-        st.info("Заполните поля в боковой панели")
+    if not phone:
+        st.info("Введите номер телефона, чтобы продолжить")
         return
 
-    if password != "moloko123":
-        st.error("Неверный пароль")
-        return
-
-    # Создаем клиента и запускаем его с использованием явного event loop
+    # Создаём клиента и запускаем его
     client = create_client()
     try:
-        asyncio.run(client.start(phone=phone))
+        run_async(client.start(phone=phone))
     except Exception as e:
         st.error(f"Ошибка при запуске клиента: {e}")
         return
@@ -94,7 +93,7 @@ def main():
 
     # Блок для получения списка диалогов
     if st.button("Получить список диалогов"):
-        dialogs = asyncio.run(get_dialogs(client))
+        dialogs = run_async(get_dialogs(client))
         st.write("Доступные диалоги:")
         for dialog in dialogs:
             st.write(f"{dialog['name']} (ID: {dialog['id']})")
@@ -106,7 +105,7 @@ def main():
         if not entity or not search_command:
             st.error("Укажите и диалог, и команду поиска")
         else:
-            messages = asyncio.run(fetch_messages(client, entity))
+            messages = run_async(fetch_messages(client, entity))
             if search_command.startswith("www"):
                 hash_messages = extract_hashtag_messages(messages)
             elif search_command.startswith("w#"):
@@ -129,10 +128,7 @@ def main():
                     st.write(f"{date.strftime('%Y-%m-%d %H:%M:%S')}: {text}")
             else:
                 st.info("Сообщения не найдены.")
-    
-    if st.button("Отключить клиента"):
-        asyncio.run(client.disconnect())
-        st.info("Клиент отключен.")
 
-if __name__ == '__main__':
-    main()
+    if st.button("Отключить клиента"):
+        run_async(client.disconnect())
+        st.info("К
