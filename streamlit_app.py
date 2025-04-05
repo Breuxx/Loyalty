@@ -1,170 +1,110 @@
-import streamlit as st
-import nest_asyncio
-import re
 import asyncio
-from datetime import datetime, timedelta
+import re
+import sys
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
+import pandas as pd
+from datetime import datetime
 
-# Применяем nest_asyncio для поддержки вложенных event loops
-nest_asyncio.apply()
+# ============================
+# Конфигурация
+# ============================
+# Замените значения ниже на свои данные, полученные с https://my.telegram.org
+api_id = 12345678                     # Ваш API ID (целое число)
+api_hash = 'your_api_hash_here'       # Ваш API hash (строка)
+session_name = 'my_session'           # Имя файла сессии (будет создан и сохранён локально)
 
-# Если в потоке нет текущего event loop, создаём и устанавливаем его
-try:
-    loop = asyncio.get_running_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# Хештег для поиска (измените при необходимости)
+SEARCH_HASHTAG = "#A910"
 
-# ---------------------------
-# Конфигурация для Telegram API
-# ---------------------------
-api_id = '1403467'  # Замените на ваш API ID
-api_hash = '15525849e4b493d2143b175f96825f87'  # Замените на ваш API hash
-session_name = 'my_session'  # Имя файла сессии
+# ============================
+# Функция авторизации
+# ============================
+async def authorize(client: TelegramClient):
+    await client.connect()
+    if not await client.is_user_authorized():
+        # Если сессия ещё не авторизована, запросим номер телефона и код подтверждения
+        phone = input("Введите номер телефона (с международным кодом, например, +1234567890): ").strip()
+        try:
+            await client.send_code_request(phone)
+        except Exception as e:
+            print("Ошибка при отправке кода:", e)
+            sys.exit(1)
+        code = input("Введите код подтверждения, который вы получили: ").strip()
+        try:
+            await client.sign_in(phone, code=code)
+        except SessionPasswordNeededError:
+            password = input("Введите ваш пароль двухфакторной аутентификации: ").strip()
+            await client.sign_in(password=password)
+    print("Авторизация успешна!")
 
-# Регулярное выражение для поиска хештегов
-hashtag_pattern = re.compile(r'#\w+')
-
-# Функция для создания клиента Telethon с явным указанием event loop
-def create_client():
-    try:
-        current_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        current_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(current_loop)
-    return TelegramClient(session_name, api_id, api_hash, loop=current_loop)
-
-# ---------------------------
-# Асинхронные функции для работы с Telegram
-# ---------------------------
-async def get_dialogs(client):
+# ============================
+# Функция получения сообщений из всех диалогов
+# ============================
+async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dialog: int = 1000):
+    results = []
     dialogs = await client.get_dialogs()
-    return [{"name": d.name, "id": d.id} for d in dialogs]
-
-async def fetch_messages(client, entity, limit=1000):
-    messages = await client.get_messages(entity, limit=limit)
-    return messages
-
-# Функция для извлечения сообщений с хештегами
-def extract_hashtag_messages(messages, target_hashtag=None):
-    filtered = []
-    for msg in messages:
-        if msg.text:
-            hashtags = hashtag_pattern.findall(msg.text)
-            if target_hashtag:
-                if target_hashtag in hashtags:
-                    filtered.append((msg.date, msg.text, hashtags))
-            else:
-                if hashtags:
-                    filtered.append((msg.date, msg.text, hashtags))
-    return filtered
-
-# Функция для подсчёта отчёта
-def get_report(messages):
-    now = datetime.now(messages[0][0].tzinfo) if messages else datetime.now()
-    one_day = now - timedelta(days=1)
-    one_week = now - timedelta(weeks=1)
-    one_month = now - timedelta(days=30)
-    msgs_day = [m for m in messages if m[0] >= one_day]
-    msgs_week = [m for m in messages if m[0] >= one_week]
-    msgs_month = [m for m in messages if m[0] >= one_month]
-    return {"day": len(msgs_day), "week": len(msgs_week), "month": len(msgs_month)}
-
-# ---------------------------
-# Основное Streamlit-приложение
-# ---------------------------
-def main():
-    st.title("Telegram Tracker")
-
-    # Используем session_state для сохранения клиента и состояния авторизации
-    if "client" not in st.session_state:
-        st.session_state.client = None
-        st.session_state.authorized = False
-        st.session_state.phone = ""
-
-    st.sidebar.header("Авторизация")
-    phone = st.sidebar.text_input("Введите номер телефона (или токен бота):", value=st.session_state.phone)
-    # Если клиент ещё не авторизован, предлагаем отправить код
-    if not st.session_state.authorized:
-        if phone:
-            st.session_state.phone = phone
-            if st.sidebar.button("Отправить код"):
-                client = create_client()
-                try:
-                    loop.run_until_complete(client.connect())
-                    loop.run_until_complete(client.send_code_request(phone))
-                    st.session_state.client = client
-                    st.success("Код отправлен! Проверьте ваш Telegram.")
-                except Exception as e:
-                    st.error(f"Ошибка при отправке кода: {e}")
-            code = st.sidebar.text_input("Введите полученный код:")
-            if code and st.sidebar.button("Подтвердить код"):
-                client = st.session_state.client
-                try:
-                    loop.run_until_complete(client.sign_in(phone, code=code))
-                    st.session_state.authorized = True
-                    st.success("Авторизация успешна!")
-                except SessionPasswordNeededError:
-                    st.error("Включена двухфакторная аутентификация. Пожалуйста, обновите код, чтобы добавить ввод пароля.")
-                except Exception as e:
-                    st.error(f"Ошибка при авторизации: {e}")
-        else:
-            st.sidebar.info("Введите номер телефона, чтобы начать авторизацию.")
-        return
-
-    # Если клиент авторизован, продолжаем работу
-    st.success("Клиент успешно запущен!")
-    
-    if st.button("Получить список диалогов"):
+    print(f"Найдено {len(dialogs)} чатов.")
+    for dialog in dialogs:
+        print(f"Обработка чата: {dialog.name} (ID: {dialog.id})")
         try:
-            dialogs = loop.run_until_complete(get_dialogs(st.session_state.client))
-            st.write("Доступные диалоги:")
-            for d in dialogs:
-                st.write(f"{d['name']} (ID: {d['id']})")
+            messages = await client.get_messages(dialog.entity, limit=limit_per_dialog)
         except Exception as e:
-            st.error(f"Ошибка при получении диалогов: {e}")
+            print(f"Ошибка получения сообщений для {dialog.name}: {e}")
+            continue
+        for msg in messages:
+            # Если в сообщении есть текст и он содержит искомый хештег
+            if msg.text and hashtag in msg.text:
+                results.append({
+                    "chat_name": dialog.name,
+                    "chat_id": dialog.id,
+                    "date": msg.date,
+                    "text": msg.text
+                })
+    return results
+
+# ============================
+# Функция формирования отчёта и сохранения в Excel
+# ============================
+def save_report(data, output_file: str):
+    df = pd.DataFrame(data)
+    if df.empty:
+        print("Сообщения не найдены.")
+        return False
+    df['date'] = pd.to_datetime(df['date'])
+    df['date_str'] = df['date'].dt.strftime("%Y-%m-%d %H:%M:%S")
+    df['day'] = df['date'].dt.date
+    df['week'] = df['date'].dt.strftime("%Y-%U")
+    df['month'] = df['date'].dt.strftime("%Y-%m")
+    df['year'] = df['date'].dt.strftime("%Y")
+    try:
+        df.to_excel(output_file, index=False)
+        print(f"Excel файл успешно сохранён как '{output_file}'.")
+        return True
+    except Exception as e:
+        print("Ошибка сохранения Excel файла:", e)
+        return False
+
+# ============================
+# Основная функция
+# ============================
+async def main():
+    client = TelegramClient(session_name, api_id, api_hash)
+    await authorize(client)
     
-    entity = st.text_input("Введите ID или username диалога для отчёта:")
-    search_command = st.text_input("Введите команду поиска (www или w#<хештег>):")
+    # После авторизации скрипт автоматически анализирует все чаты
+    print(f"Поиск сообщений с хештегом {SEARCH_HASHTAG}...")
+    data = await fetch_all_messages(client, SEARCH_HASHTAG)
     
-    if st.button("Сформировать отчёт"):
-        if not entity or not search_command:
-            st.error("Укажите диалог и команду поиска.")
-        else:
-            try:
-                messages = loop.run_until_complete(fetch_messages(st.session_state.client, entity))
-                if search_command.startswith("www"):
-                    hash_messages = extract_hashtag_messages(messages)
-                elif search_command.startswith("w#"):
-                    tag = search_command[2:]
-                    if not tag.startswith("#"):
-                        tag = "#" + tag
-                    hash_messages = extract_hashtag_messages(messages, target_hashtag=tag)
-                else:
-                    st.error("Неверная команда поиска.")
-                    return
-                if hash_messages:
-                    report_data = get_report(hash_messages)
-                    st.subheader("Отчёт:")
-                    st.write(f"За день: {report_data['day']}")
-                    st.write(f"За неделю: {report_data['week']}")
-                    st.write(f"За месяц: {report_data['month']}")
-                    st.subheader("Сообщения:")
-                    for date, text, tags in hash_messages:
-                        st.write(f"{date.strftime('%Y-%m-%d %H:%M:%S')}: {text}")
-                else:
-                    st.info("Сообщения не найдены.")
-            except Exception as e:
-                st.error(f"Ошибка при получении сообщений: {e}")
+    if not data:
+        print(f"Сообщения с хештегом {SEARCH_HASHTAG} не найдены.")
+    else:
+        output_file = input("Введите имя выходного Excel файла (например, report.xlsx): ").strip()
+        if not output_file:
+            output_file = "report.xlsx"
+        save_report(data, output_file)
     
-    if st.button("Отключить клиента"):
-        try:
-            loop.run_until_complete(st.session_state.client.disconnect())
-            st.session_state.authorized = False
-            st.success("Клиент отключен.")
-        except Exception as e:
-            st.error(f"Ошибка при отключении клиента: {e}")
+    await client.disconnect()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
