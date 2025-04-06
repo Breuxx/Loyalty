@@ -13,8 +13,8 @@ api_id = 12345678                     # Ваш API ID (целое число)
 api_hash = 'your_api_hash_here'       # Ваш API hash (строка)
 session_name = 'my_session'           # Имя файла сессии
 
-# Хештег для поиска (измените при необходимости)
-SEARCH_HASHTAG = "#A910"
+# Регулярное выражение для поиска хештегов (любые хештеги)
+hashtag_pattern = re.compile(r'#\w+')
 
 # ============================
 # Функция авторизации
@@ -39,11 +39,11 @@ async def authorize(client: TelegramClient):
 # ============================
 # Функция получения сообщений из всех диалогов с фильтрацией по дате
 # ============================
-async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dialog: int = 1000, min_date=None):
+async def fetch_all_messages(client: TelegramClient, limit_per_dialog: int = 1000, min_date=None):
     results = []
     dialogs = await client.get_dialogs()
     print(f"Найдено {len(dialogs)} чатов.")
-    # Если задана дата, приведем её к timezone-naive один раз:
+    # Если задана дата, приведём её к timezone-naive один раз:
     if min_date is not None:
         naive_min_date = min_date.replace(tzinfo=None)
     for dialog in dialogs:
@@ -53,17 +53,20 @@ async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dia
         except Exception as e:
             print(f"Ошибка получения сообщений для {dialog.name}: {e}")
             continue
-        # Если задана дата, фильтруем сообщения вручную:
+        # Если задана дата, фильтруем сообщения вручную
         if min_date is not None:
             messages = [msg for msg in messages if msg.date is not None and msg.date.replace(tzinfo=None) >= naive_min_date]
         for msg in messages:
-            if msg.text and hashtag.lower() in msg.text.lower():
-                results.append({
-                    "chat_name": dialog.name,
-                    "chat_id": dialog.id,
-                    "date": msg.date.replace(tzinfo=None),  # Приводим дату к naive
-                    "text": msg.text.strip()
-                })
+            if msg.text:
+                hashtags_found = hashtag_pattern.findall(msg.text)
+                if hashtags_found:  # Если найдены хоть какие-то хештеги
+                    results.append({
+                        "chat_name": dialog.name,
+                        "chat_id": dialog.id,
+                        "date": msg.date.replace(tzinfo=None),  # Приводим дату к naive
+                        "text": msg.text.strip(),
+                        "hashtags": ", ".join(hashtags_found)
+                    })
     return results
 
 # ============================
@@ -72,7 +75,7 @@ async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dia
 def save_report(data, output_file: str):
     df = pd.DataFrame(data)
     if df.empty:
-        print("Сообщения не найдены.")
+        print("Сообщения с хештегами не найдены.")
         return False
     # Убедимся, что даты timezone-naive
     df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
@@ -96,7 +99,7 @@ async def main():
     client = TelegramClient(session_name, api_id, api_hash)
     await authorize(client)
     
-    # Спрашиваем, анализировать ли только последние 7 дней
+    # Выбор периода анализа
     choice = input("Анализировать только последние 7 дней? (Y/n): ").strip().lower()
     if choice in ["", "y", "yes"]:
         min_date = datetime.now() - timedelta(days=7)
@@ -105,14 +108,14 @@ async def main():
         min_date = None
         print("Анализ сообщений за все время.")
     
-    print(f"Поиск сообщений с хештегом {SEARCH_HASHTAG}...")
-    data = await fetch_all_messages(client, SEARCH_HASHTAG, limit_per_dialog=1000, min_date=min_date)
+    print("Поиск сообщений с хештегами...")
+    data = await fetch_all_messages(client, limit_per_dialog=1000, min_date=min_date)
     
     if not data:
-        print(f"Сообщения с хештегом {SEARCH_HASHTAG} не найдены.")
+        print("Сообщения с хештегами не найдены.")
     else:
         output_file = input("Введите имя выходного Excel файла (например, report.xlsx): ").strip()
-        if not output_file:
+        if not output_file or not output_file.lower().endswith(".xlsx"):
             output_file = "report.xlsx"
         save_report(data, output_file)
     
