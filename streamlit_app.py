@@ -43,6 +43,9 @@ async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dia
     results = []
     dialogs = await client.get_dialogs()
     print(f"Найдено {len(dialogs)} чатов.")
+    # Если задана дата, приведем её к timezone-naive один раз:
+    if min_date is not None:
+        naive_min_date = min_date.replace(tzinfo=None)
     for dialog in dialogs:
         print(f"Обработка чата: {dialog.name} (ID: {dialog.id})")
         try:
@@ -50,16 +53,16 @@ async def fetch_all_messages(client: TelegramClient, hashtag: str, limit_per_dia
         except Exception as e:
             print(f"Ошибка получения сообщений для {dialog.name}: {e}")
             continue
-        # Если задана дата, фильтруем сообщения вручную
+        # Если задана дата, фильтруем сообщения вручную:
         if min_date is not None:
-            messages = [msg for msg in messages if msg.date >= min_date]
+            messages = [msg for msg in messages if msg.date is not None and msg.date.replace(tzinfo=None) >= naive_min_date]
         for msg in messages:
-            if msg.text and hashtag in msg.text:
+            if msg.text and hashtag.lower() in msg.text.lower():
                 results.append({
                     "chat_name": dialog.name,
                     "chat_id": dialog.id,
-                    "date": msg.date,
-                    "text": msg.text
+                    "date": msg.date.replace(tzinfo=None),  # Приводим дату к naive
+                    "text": msg.text.strip()
                 })
     return results
 
@@ -71,7 +74,8 @@ def save_report(data, output_file: str):
     if df.empty:
         print("Сообщения не найдены.")
         return False
-    df['date'] = pd.to_datetime(df['date'])
+    # Убедимся, что даты timezone-naive
+    df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
     df['date_str'] = df['date'].dt.strftime("%Y-%m-%d %H:%M:%S")
     df['day'] = df['date'].dt.date
     df['week'] = df['date'].dt.strftime("%Y-%U")
