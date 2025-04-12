@@ -14,15 +14,15 @@ hashtag_pattern = re.compile(r'#\w+')
 async def authorize(client):
     await client.connect()
     if not await client.is_user_authorized():
-        phone = input("📱 ").strip()
+        phone = input("📱 Введите номер телефона: ").strip()
         await client.send_code_request(phone)
-        code = input("🔑 ").strip()
+        code = input("🔑 Введите код подтверждения: ").strip()
         try:
             await client.sign_in(phone, code=code)
         except SessionPasswordNeededError:
-            pwd = input("🔒 ").strip()
+            pwd = input("🔒 Введите пароль 2FA: ").strip()
             await client.sign_in(password=pwd)
-    print("✅")
+    print("✅ Авторизация успешна")
 
 async def fetch_all_messages(client, target_hashtag=None, limit_per_dialog=1000, min_date=None):
     results = []
@@ -60,35 +60,36 @@ def save_report(data, filename):
     df['month'] = df['date'].dt.strftime("%Y-%m")
     df['year']  = df['date'].dt.strftime("%Y")
     df.to_excel(filename, index=False)
-    print("💾")
+    print(f"💾 Отчёт сохранён в файл: {filename}")
 
 async def main():
     client = TelegramClient(session_name, api_id, api_hash)
     await authorize(client)
 
-    choice = input("🏷️ ").strip().lower()
+    choice = input("🏷️ Искать конкретный хештег? (Y/n): ").strip().lower()
     if choice in ("y", ""):
-        tag = input("🏷️ ").strip()
+        tag = input("🏷️ Введите хештег: ").strip()
         if not tag.startswith("#"):
             tag = "#" + tag
         target = tag
     else:
         target = None
 
-    choice2 = input("⏱️ ").strip().lower()
+    choice2 = input("⏱️ Только последние 7 дней? (Y/n): ").strip().lower()
     if choice2 in ("y", ""):
         min_date = datetime.now() - timedelta(days=7)
     else:
         min_date = None
 
+    print("🔍 Поиск сообщений...")
     data = await fetch_all_messages(client, target, 1000, min_date)
     await client.disconnect()
 
     if not data:
-        print("⚠️")
+        print("⚠️ Сообщений не найдено")
         return
 
-    fn = input("📂 ").strip()
+    fn = input("📂 Имя файла для сохранения (report.xlsx): ").strip()
     if not fn.lower().endswith(".xlsx"):
         fn = "report.xlsx"
     save_report(data, fn)
